@@ -1,25 +1,298 @@
 ---
-title: "CHARLA TIDY"
-format: revealjs
+title: "tidychangepoint"
+author: "Biviana Marcela Suárez Sierra, EAFIT University"
+institute: "JSM 2024: Portland, OR"
+date: August 6, 2024
+title-slide-attributes:
+  data-background-image: "https://media.hswstatic.com/eyJidWNrZXQiOiJjb250ZW50Lmhzd3N0YXRpYy5jb20iLCJrZXkiOiJnaWZcL3JlZGVmaW5lZm91cnNlYXNvbnMtMS5qcGciLCJlZGl0cyI6eyJyZXNpemUiOnsid2lkdGgiOjgyOH0sInRvRm9ybWF0IjoiYXZpZiJ9fQ=="
+  data-background-size: contain
+  data-background-opacity: "0.4"
+default-image-extension: "" 
+format: 
+  revealjs:
+    slide-number: true
+    footer: "<https://t.ly/3LgP9>"
+    logo: "https://github.com/SmithCollege-SDS/sds/raw/master/man/figures/logo.png"
+execute: 
+  echo: true
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished presentation. To learn more about Quarto presentations see <https://quarto.org/docs/presentations/>.
-
-## Bullets
-
-When you click the **Render** button a document will be generated that includes:
-
--   Content authored with markdown
--   Output from executable code
-
-## Code
-
-When you click the **Render** button a presentation will be generated that includes both content and the output of embedded code. You can embed code like this:
 
 ```{r}
-1 + 1
+#| echo: false
+library(tidyverse)
+library(tidychangepoint)
+```
+
+# Changepoint Detection
+
+## Changepoint Detection Problem (CDP)
+
+- Given a time series $y = \{y_1, \ldots, y_n \}$
+- A subset $\tau = \{ \tau_1, \ldots, \tau_m \} \subseteq y$ is a **changepoint set**
+- Find the changepoint set that minimizes some **penalized objective function** (that acts on $\tau$)
+
+
+::: {.notes}
+A change point is an abrupt change in the time line of observation of some phenomenon. Studying these points provides insight into patterns of behavior and transitions between cycles. Change points divide the time series into segments or intervals that are not necessarily independent or identically distributed. Although these concepts have been present in time series models for a long time, methods have recently been developed that avoid assuming a specific distribution for the random mechanism that generates the observations over time. Both classical and emergent models have demonstrated effectiveness in fitting time series and in identifying how many change points exist and where they are located.
+:::
+
+## Why is CDP hard? 
+
+- Search space is exponentially large ($2^n$ possible changepoint sets)
+- Many different ways to **model** the time series (parametrically)
+- Many different penalty functions (e.g., BIC, MDL, etc.)
+- No real "ground truth"
+
+## Ex. 1: Baseball
+
+```{r}
+#| echo: false
+mlb_tbl <- mlb_hrs |>
+  as.data.frame() |>
+  tibble::as_tibble(rownames = "date") |>
+  mutate(
+    diff = V1,
+    year = year(date),
+    dh = ifelse(year < 1973, "none", ifelse(year < 2022, "AL only", "both"))
+  )
+regions <- mlb_tbl |>
+  group_by(dh) |>
+  summarize(
+    begin = min(year),
+    end = max(year),
+    mean_diff = mean(diff)
+  )
+
+mlb_tbl |>
+  ggplot(aes(x = year, y = diff)) +
+  geom_hline(yintercept = 0, linetype = 3) +
+  geom_vline(xintercept = c(1973, 2022), linetype = 2) +
+  geom_line() + 
+  geom_segment(data = regions, aes(x = begin, xend = end, y = mean_diff), color = "red") +
+  geom_text(
+    data = data.frame(
+      year = c(mean(c(1925, 1973)), mean(c(1973, 2022))),
+      diff = 0.007,
+      label = c("Region 1", "Region 2")
+    ),
+    aes(label = label)
+  ) + 
+  scale_x_continuous(NULL) +
+  scale_y_continuous("Difference in the rate of home runs")
 ```
 
 
+- True changepoints are known (1973, 2022)
+- Can we find them? 
+
+::: {.notes}
+Difference in the rate of home runs per plate appearance between the American and National Leagues in Major League Baseball, 1925–2022. The designated hitter rule was adopted in 1973 by the American League, but not until 2022 by the National League. Note how, during the period from 1973 to 2022 when only the American League employed a designated hitter, the difference in home run rate was nearly always negative.
+:::
+
+## Ex. 2: Particulate matter in Bogotá
+
+![](https://beanumber.github.io/changepoint-paper/index_files/figure-html/fig-bogota-1.png)
+
+- True changepoints are **unknown**
+- Can we find them??
+
+## Current state-of-the-art
+
+- PELT ([Killick, 2012](https://doi.org/10.1080/01621459.2012.737745))
+    - polynomial time, exact solution
+    - mild conditions
+
+- Genetic algorithms (e.g., [Shi, 2022](https://doi.org/10.1175/JCLI-D-21-0489.1))
+    - flexible, but heuristic and can be slow
+
+- Other approaches
+    - Bayesian methods
+    - Coen's algorithm ([Suárez-Sierra, et al., 2023](https://doi.org/10.1007/s42952-023-00227-2))
+
+## What constitutes a solution? 
+
+Every solution includes **three** components:
+
+- An **algorithm** to search the space (e.g., PELT, Binary segmentation, etc.)
+- A (parametric) **model** to describe the data-generating process
+- A **penalized objection function** to be optimized
+
+
+## PELT software implementation
+
+- `r fontawesome::fa("box-open")` [`changepoint` package](https://github.com/rkillick/changepoint/) [![CRAN
+status](https://www.r-pkg.org/badges/version/changepoint)](https://cran.r-project.org/package=changepoint)
+- includes several (but not all) models
+- includes several (but not all) penalty functions
+
+## Genetic algorithms software implementation
+
+- No direct implementation for CDP
+- `r fontawesome::fa("box-open")` [`GA` package](https://luca-scr.github.io/GA/) can be customized (foreshadowing...)
+
+## Other software implementations
+
+- Many other packages (e.g., `wbs`, `qcc`, `bcp`, `ggchangepoint`, etc.)...
+
+## Problems with the state-of-the-art
+
+- a lot of different packages
+- a lot of different interfaces
+- a lot of different return objects
+- not all algorithms work with all models or penalty functions
+
+# `tidychangepoint`
+
+## Introducing `tidychangepoint`
+
+:::: {.columns} 
+::: {.column width="40%"}
+
+```{r}
+#| echo: true
+library(tidychangepoint)
+```
+
+- Joint work with Ben Baumer (Smith)
+- `r fontawesome::fa("box-open")` [tidychangepoint](https://beanumber.github.io/tidychangepoint/)
+
+:::
+::: {.column width="60%"}
+
+```{=html}
+<iframe width="780" height="600" src="https://beanumber.github.io/changepoint-paper/" title="tidychangepoint"></iframe>
+```
+:::
+::::
+
+::: {.notes}
+This paper compiles the change point detection mechanisms of several methods, such as PELT, WBS, ggchangepoint, BCP, and QCC, among others. Each of these methods has its own library in CRAN. We implement visual tools and comparative metrics for each method, so that Tidychangepoint users can select the model that best fits their observations.
+:::
+
+## What does `tidychangepoint` do? 
+
+- wraps functions from existing packages
+- syntax that is compatible with `tidyverse`
+- comprehensive architecture in a single package
+- incorporating:
+    - new changepoint detection algorithms
+    - new parametric models
+    - new penalty functions 
+
+
+## Using `segment()`
+
+- `segment()` wraps a variety of CDP algorithms
+
+```{r}
+mlb_pelt <- mlb_hrs |>
+  segment(method = "pelt", penalty = "BIC")
+class(mlb_pelt)
+```
+
+## Recovering changepoints
+
+- Use `changepoints()` to recover the changepoint sets
+
+```{r}
+changepoints(mlb_pelt)
+changepoints(mlb_pelt, use_labels = TRUE) |>
+  as_year()
+```
+
+## Recover estimated parameters `r fontawesome::fa("broom")`
+
+```{r}
+tidy(mlb_pelt)
+```
+
+## Recover model fit information `r fontawesome::fa("broom")`
+
+```{r}
+glance(mlb_pelt)
+```
+
+## Experiment with different models
+
+```{r}
+compare_models(mlb_pelt)
+```
+
+## Visualize the changepoint set
+
+```{r}
+plot(mlb_pelt, use_time_index = TRUE)
+```
+
+## Try a different penalty
+
+```{r}
+mlb_hrs |>
+  segment(method = "pelt", penalty = "MBIC") |>
+  plot(use_time_index = TRUE)
+```
+
+## Try a different model
+
+```{r}
+mlb_hrs |>
+  segment(method = "pelt", model_fn = fit_meanshift_norm) |>
+  plot(use_time_index = TRUE)
+```
+
+## Try a different algorithm
+
+```{r}
+#| eval: false
+mlb_hrs |>
+  segment(method = "ga-shi", maxiter = 500, run = 50) |>
+  plot(use_time_index = TRUE)
+```
+
+![](https://beanumber.github.io/changepoint-paper/index_files/figure-html/fig-mlb-ga-2.png)
+
+## Roll your own genetic algorithm
+
+```{r}
+#| eval: false
+mlb_hrs |>
+  segment(
+    method = "ga",
+    model_fn = fit_trendshift_ar1, 
+    penalty_fn = MDL,
+    popSize = 500,
+    maxiter = 10000, 
+    run = 50
+  )
+```
+
+- `tidychangepoint` includes more than 10 models and 5 penalty functions
+- More can be user-defined!
+
+## Diagnose the model fit
+
+![](https://beanumber.github.io/changepoint-paper/index_files/figure-html/fig-bogota-diagnose-ga-1.png)
+
+## Learn more
+
+:::: {.columns}
+::: {.column width="40%"}
+
+- `r fontawesome::fa("box-open")` [Package documentation](https://beanumber.github.io/tidychangepoint/)
+- `r fontawesome::fa("github")` [GitHub repository](https://github.com/beanumber/tidychangepoint/)
+- `r fontawesome::fa("file-pdf")` [Paper draft](https://beanumber.github.io/changepoint-paper/)
+- `r fontawesome::fa("file-pdf")` [arXiv draft](https://arxiv.org/abs/2407.14369)
+
+:::
+::: {.column width="60%"}
+
+```{=html}
+<iframe width="780" height="600" src="https://beanumber.github.io/changepoint-paper/" title="tidychangepoint"></iframe>
+```
+:::
+::::
+
+# Thank you!!!
+
+![](https://media.giphy.com/media/yoJC2El7xJkYCadlWE/giphy.gif){width=80%}
